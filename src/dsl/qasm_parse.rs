@@ -10,7 +10,7 @@
 use super::Diagnostic;
 use crate::state::circuit::Circuit;
 
-const MAX_QUBITS: usize = 10;
+const MAX_QUBITS: usize = 20;
 
 pub fn parse_qasm(src: &str) -> (Circuit, Vec<Diagnostic>) {
     let registers = QRegisters::from_source(src);

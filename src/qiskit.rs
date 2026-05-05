@@ -36,7 +36,7 @@ pub fn scan_qasm_qubits(src: &str) -> usize {
             total += n;
         }
     }
-    total.clamp(1, 10)
+    total.clamp(1, 20)
 }
 
 /// Best-effort scan for `QuantumCircuit(N)` in Python source — used the
@@ -70,7 +70,7 @@ pub fn scan_python_qubits(src: &str) -> usize {
             i += 1;
         }
     }
-    best.clamp(1, 10)
+    best.clamp(1, 20)
 }
 
 /// Pick a qubit-count heuristic for the editor's current source kind.

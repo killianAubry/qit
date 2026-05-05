@@ -48,10 +48,10 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
                     ui.end_row();
 
                     ui.label(RichText::new("State Size").color(color::TEXT_MUTED).monospace());
-                    let size_color = if num_qubits >= 10 { color::ACCENT_RED } else { color::TEXT_PRIMARY };
+                    let size_color = if num_qubits >= 15 { color::ACCENT_RED } else { color::TEXT_PRIMARY };
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(format!("2^{} ({} states)", num_qubits, num_states)).color(size_color).monospace());
-                        if num_qubits >= 10 {
+                        if num_qubits >= 15 {
                             ui.label(RichText::new("⚠ scaling limit").color(color::ACCENT_RED).monospace());
                         }
                     });

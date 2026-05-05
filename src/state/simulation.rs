@@ -64,7 +64,7 @@ impl SimulationState {
     /// |0…0⟩ — used at boot or after `:clear` so panels render zeros instead
     /// of the previous run's data.
     pub fn ground_state(num_qubits: usize) -> Self {
-        let n = num_qubits.clamp(1, 10);
+        let n = num_qubits.clamp(1, 20);
         let dim = 1usize << n;
         let mut sv = vec![Complex::default(); dim];
         sv[0] = Complex { re: 1.0, im: 0.0 };
@@ -75,7 +75,7 @@ impl SimulationState {
     /// development and as a placeholder before any real run.
     #[allow(dead_code)]
     pub fn mock(num_qubits: usize) -> Self {
-        let n = num_qubits.clamp(1, 10);
+        let n = num_qubits.clamp(1, 20);
         let dim = 1usize << n;
 
         let mut sv = vec![Complex::default(); dim];

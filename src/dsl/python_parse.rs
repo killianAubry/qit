@@ -7,7 +7,7 @@
 use super::Diagnostic;
 use crate::state::circuit::Circuit;
 
-const MAX_QUBITS: usize = 10;
+const MAX_QUBITS: usize = 20;
 
 pub fn parse_python(src: &str) -> (Circuit, Vec<Diagnostic>) {
     let num_qubits = scan_quantum_circuit_size(src).clamp(1, MAX_QUBITS);

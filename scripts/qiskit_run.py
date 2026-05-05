@@ -101,8 +101,8 @@ def main() -> None:
     if nq <= 0:
         print("circuit has no qubits", file=sys.stderr)
         sys.exit(68)
-    if nq > 10:
-        print(f"too many qubits: {nq} (UI limit 10)", file=sys.stderr)
+    if nq > 20:
+        print(f"too many qubits: {nq} (UI limit 20)", file=sys.stderr)
         sys.exit(69)
 
     # Drop final measurements / barriers for unitary evolution. The qsim_ui

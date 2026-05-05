@@ -224,8 +224,8 @@ fn parse_spinoza_output(stdout: &str) -> Result<SimulationState, String> {
             expected,
         ));
     }
-    if n > 10 {
-        return Err(format!("spinoza: {n} qubits exceeds UI limit of 10"));
+    if n > 20 {
+        return Err(format!("spinoza: {n} qubits exceeds UI limit of 20"));
     }
 
     Ok(SimulationState::from_statevector(n, amps))
