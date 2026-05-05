@@ -16,7 +16,7 @@ pub enum SimulatorKind {
     /// `QuantumCircuit` named `qc` / `circuit`.
     Qiskit,
     /// OpenQASM 2 source — runs through the Spinoza-based TurboSpin native
-    /// binary (`cargo run -p spinoza` under `TurboSpin/`).
+    /// binary (`cargo run -p spinoza --bin spinoza -- --qasm … --comp-bit …`).
     TurboSpin,
 }
 

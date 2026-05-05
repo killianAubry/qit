@@ -7,7 +7,7 @@
 //
 //   * `SimulatorKind::OpenQasm`   buffer is OpenQASM 2 → Qiskit
 //   * `SimulatorKind::Qiskit`     buffer is Python      → Qiskit (exec)
-//   * `SimulatorKind::TurboSpin`  buffer is OpenQASM 2 → Spinoza CLI
+//   * `SimulatorKind::TurboSpin`  buffer is OpenQASM 2 → Spinoza CLI (`--comp-bit`)
 //
 // The visualizer-only `Circuit` is parsed in pure Rust here so the gate grid
 // updates as you type. The actual statevector comes from the chosen runner;

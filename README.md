@@ -18,7 +18,7 @@ in pure Rust.
 | ----------- | ---------------- | -------------- | ------ |
 | `openqasm`  | OpenQASM 2.0     | `circuit.qasm` | `python3 scripts/qiskit_run.py qasm <file>` |
 | `qiskit`    | Python (Qiskit)  | `circuit.py`   | `python3 scripts/qiskit_run.py py <file>`   |
-| `turbospin` | OpenQASM 2.0     | `circuit.qasm` | `cargo run -p spinoza -- --qasm <file> --no-compression` or `--compression-bits <1..8>` (in `TurboSpin/`) |
+| `turbospin` | OpenQASM 2.0     | `circuit.qasm` | `cargo run --release --quiet -p spinoza --bin spinoza -- --qasm <file> --comp-bit 0|1..8` (cwd `TurboSpin/`) |
 
 ## Keybinds
 
@@ -50,8 +50,10 @@ starter template, switching auto-loads the new template; otherwise your
 edits are preserved.
 
 When `turbospin` is selected, a second title-bar dropdown appears for
-TurboSpin compression: `exact` keeps the original statevector, while `1..8`
-bits compress then immediately decompress before the UI renders the result.
+TurboSpin compression: `exact` maps to `--comp-bit 0` (raw Spinoza), while
+`1..8` runs the hybrid BACQS path at that bit depth. The bundled CLI prints
+plain statevector rows only (no compression report); metrics panels treat
+those fields as unavailable unless you use a legacy Spinoza build that emits them.
 
 The **circuit visualizer** parses the editor source on every keystroke
 (OpenQASM and Python both, best-effort) so the gate grid follows live
@@ -239,10 +241,11 @@ panels follow automatically. Two contracts already plug into that:
 { "num_qubits": 2, "statevector": [{"re": 0.707, "im": 0}, ...] }
 ```
 
-`cargo run -p spinoza -- --qasm <file> --no-compression` (TurboSpin) — plain
-text on stdout in the form
-`<index> | <bin> | re=<f> | im=<f> | magnitude=<f> | probability=<f>`,
-preceded by a `qubits:` header.
+`cargo run -p spinoza --bin spinoza -- --qasm <file> --comp-bit <0..8>` (TurboSpin) —
+plain text on stdout, one line per basis state:
+`<index> | <bin> | re=<f> | im=<f> | magnitude=<f> | probability=<f>`.
+Some older Spinoza CLIs also prefix a `qubits:` / `statevector:` block; the UI
+parser accepts both.
 
 Adding another backend is one match arm in `state::run_simulator` plus a
 `run_<name>_source` function returning `Result<SimulationState, String>`

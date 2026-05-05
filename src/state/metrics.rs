@@ -60,8 +60,8 @@ impl Metrics {
     }
 }
 
-/// Compression metadata returned by the Spinoza CLI when `--compression-bits`
-/// is used. Passed from `turbospin.rs` into `MetricsTracker::finalize_run`.
+/// Compression metadata when the TurboSpin/Spinoza CLI emits report lines on stdout.
+/// Passed from `turbospin.rs` into `MetricsTracker::finalize_run`.
 #[derive(Clone, Debug, Default)]
 pub struct CompressionInfo {
     pub ratio: f64,

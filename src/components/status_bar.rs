@@ -114,7 +114,7 @@ fn combo_turbospin_compression(ui: &mut egui::Ui, state: &mut AppState) {
             })
             .response
             .on_hover_text(
-                "TurboSpin compression\nexact = no compression\n1..8-bit = compress then decompress before visualizing",
+                "TurboSpin compression\nexact = --comp-bit 0 (raw Spinoza)\n1..8 = BACQS hybrid path (--comp-bit N)",
             );
 
         let _ = resp;
