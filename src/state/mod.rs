@@ -174,9 +174,21 @@ impl AppState {
         )?;
         
         // Calculate theoretical memory overhead for the state vector
-        // 2^n amplitudes * 8 bytes (2x f32) per amplitude
-        let bytes = (1usize << sim.num_qubits) * 8;
-        let memory_mb = bytes as f64 / 1_048_576.0;
+        // Simulator internal (Spinoza/Qiskit usually use f64 complex = 16 bytes)
+        // + UI statevector (f32 complex = 8 bytes)
+        // + UI probabilities (f32 = 4 bytes)
+        // Total = 28 bytes per amplitude
+        let bytes_per_amp = 28usize;
+        let bytes = (1usize << sim.num_qubits) * bytes_per_amp;
+        
+        // Add baseline overhead (Python/CLI startup, basic structures)
+        let baseline_bytes = if self.simulator == SimulatorKind::Qiskit {
+            50_000_000 // Python/Qiskit has ~50MB baseline
+        } else {
+            2_000_000 // Spinoza Rust CLI is very lightweight, ~2MB baseline
+        };
+
+        let memory_mb = (bytes + baseline_bytes) as f64 / 1_048_576.0;
         
         sim.run_time_ms = Some(start_time.elapsed().as_secs_f64() * 1000.0);
         sim.memory_mb = Some(memory_mb);

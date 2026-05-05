@@ -70,9 +70,11 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
                 .show(ui, |ui| {
                     ui.label(RichText::new("Memory").color(color::TEXT_MUTED).monospace());
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("{:.4} MB", memory_mb)).color(color::ACCENT_PURPLE).monospace());
+                        ui.label(RichText::new(format!("{:.2} MB", memory_mb)).color(color::ACCENT_PURPLE).monospace());
                         
-                        let mem_progress = (memory_mb / 10.0).clamp(0.0, 1.0) as f32;
+                        // Scale the memory bar relative to the theoretical maximum limit (20 qubits = ~30MB + baseline)
+                        let max_expected_mb = 80.0;
+                        let mem_progress = (memory_mb / max_expected_mb).clamp(0.0, 1.0) as f32;
                         ui.add(egui::ProgressBar::new(mem_progress)
                             .desired_width(100.0)
                             .fill(color::ACCENT_PURPLE)
