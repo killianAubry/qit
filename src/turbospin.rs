@@ -3,9 +3,9 @@
 // Spawns the Spinoza CLI from the bundled `TurboSpin/` cargo workspace:
 //
 //     cargo run --release --quiet --manifest-path <…>/TurboSpin/Cargo.toml \
-//         -p spinoza -- --qasm <tmp.qasm> --no-compression
+//         -p spinoza --bin spinoza -- --qasm <tmp.qasm> --no-compression
 //     cargo run --release --quiet --manifest-path <…>/TurboSpin/Cargo.toml \
-//         -p spinoza -- --qasm <tmp.qasm> --compression-bits 4 --show-statevector
+//         -p spinoza --bin spinoza -- --qasm <tmp.qasm> --compression-bits 4 --show-statevector
 //
 // The CLI prints a header (`source:`, `qubits:`, `dimension:`, `norm:`)
 // followed by `statevector:` and a row per basis state, e.g.
@@ -23,6 +23,7 @@ use std::process::Command;
 
 use crate::state::TurboSpinCompression;
 use crate::state::simulation::{Complex, SimulationState};
+use crate::state::metrics::CompressionInfo;
 
 /// Default manifest sits next to the `qsim_ui` source tree:
 ///   `<this repo>/TurboSpin/Cargo.toml`
@@ -40,11 +41,18 @@ fn cargo_bin() -> String {
     std::env::var("TURBOSPIN_CARGO").unwrap_or_else(|_| "cargo".to_string())
 }
 
+/// Result of a TurboSpin run: the simulation state plus optional compression metadata
+/// when `--compression-bits` was used.
+pub struct TurboSpinResult {
+    pub simulation: SimulationState,
+    pub compression: Option<CompressionInfo>,
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_qasm_source(
     source: &str,
     compression: TurboSpinCompression,
-) -> Result<SimulationState, String> {
+) -> Result<TurboSpinResult, String> {
     let manifest = manifest_path();
     if !manifest.is_file() {
         return Err(format!(
@@ -81,6 +89,8 @@ pub fn run_qasm_source(
             "--quiet",
             "-p",
             "spinoza",
+            "--bin",
+            "spinoza",
             "--",
         ])
         .arg("--qasm")
@@ -96,7 +106,7 @@ pub fn run_qasm_source(
         return Err(first_useful_line(err.trim()));
     }
     let stdout = String::from_utf8_lossy(&out.stdout);
-    parse_spinoza_output(&stdout)
+    parse_spinoza_output(&stdout, compression)
 }
 
 /// Reduce the editor buffer to what we feed Spinoza on disk. Lines are dropped when
@@ -142,7 +152,7 @@ fn runtime_args_for(compression: TurboSpinCompression) -> Vec<String> {
 pub fn run_qasm_source(
     _source: &str,
     _compression: TurboSpinCompression,
-) -> Result<SimulationState, String> {
+) -> Result<TurboSpinResult, String> {
     Err("TurboSpin runs on desktop builds only".into())
 }
 
@@ -172,12 +182,19 @@ fn first_useful_line(s: &str) -> String {
         .to_string()
 }
 
-/// Parse Spinoza's CLI report into a `SimulationState`. Tolerant of
+/// Parse Spinoza's CLI report into a `TurboSpinResult`. Tolerant of
 /// surrounding cargo / progress noise.
-fn parse_spinoza_output(stdout: &str) -> Result<SimulationState, String> {
+fn parse_spinoza_output(stdout: &str, compression: TurboSpinCompression) -> Result<TurboSpinResult, String> {
     let mut num_qubits: Option<usize> = None;
     let mut amps: Vec<Complex> = Vec::new();
     let mut in_sv = false;
+
+    let mut compression_ratio: Option<f64> = None;
+    let mut compression_fidelity: Option<f64> = None;
+    let mut compression_norm_error: Option<f64> = None;
+    let mut compressed_payload_bytes: Option<usize> = None;
+    let mut compressed_metadata_bytes: Option<usize> = None;
+    let mut compression_bits: Option<u8> = None;
 
     for raw in stdout.lines() {
         let line = raw.trim();
@@ -193,8 +210,35 @@ fn parse_spinoza_output(stdout: &str) -> Result<SimulationState, String> {
         // Compression-report output begins with `bits | …`; a UI run may ask
         // either for exact `--no-compression` output or a compressed /
         // decompressed statevector via `--compression-bits`.
-        if line.starts_with("bits |") || line.starts_with("compression") {
+        if line.starts_with("bits |") || line.starts_with("compression_report") {
             in_sv = false;
+            continue;
+        }
+
+        // Parse compression metadata lines emitted by the CLI when
+        // `--compression-bits` is used.
+        if let Some(rest) = line.strip_prefix("compression_ratio:") {
+            compression_ratio = rest.trim().parse::<f64>().ok();
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("compression_fidelity:") {
+            compression_fidelity = rest.trim().parse::<f64>().ok();
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("compression_norm_error:") {
+            compression_norm_error = rest.trim().parse::<f64>().ok();
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("compressed_payload_bytes:") {
+            compressed_payload_bytes = rest.trim().parse::<usize>().ok();
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("compressed_metadata_bytes:") {
+            compressed_metadata_bytes = rest.trim().parse::<usize>().ok();
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("compression_bits:") {
+            compression_bits = rest.trim().parse::<u8>().ok();
             continue;
         }
 
@@ -228,7 +272,27 @@ fn parse_spinoza_output(stdout: &str) -> Result<SimulationState, String> {
         return Err(format!("spinoza: {n} qubits exceeds UI limit of 20"));
     }
 
-    Ok(SimulationState::from_statevector(n, amps))
+    let simulation = SimulationState::from_statevector(n, amps);
+
+    let comp_info = match compression.bits() {
+        Some(_bits) => {
+            // Compression was requested; use parsed values if available.
+            match (compression_ratio, compression_fidelity, compressed_payload_bytes, compression_bits) {
+                (Some(ratio), Some(fid), Some(payload), Some(bits)) => Some(CompressionInfo {
+                    ratio,
+                    fidelity: fid,
+                    norm_error: compression_norm_error.unwrap_or(0.0),
+                    payload_bytes: payload,
+                    metadata_bytes: compressed_metadata_bytes.unwrap_or(0),
+                    bits,
+                }),
+                _ => None,
+            }
+        }
+        None => None,
+    };
+
+    Ok(TurboSpinResult { simulation, compression: comp_info })
 }
 
 /// Spinoza row format:
@@ -266,7 +330,8 @@ statevector:
 
     #[test]
     fn parses_bell_pair_output() {
-        let sim = parse_spinoza_output(BELL_OUTPUT).unwrap();
+        let result = parse_spinoza_output(BELL_OUTPUT, TurboSpinCompression::Lossless).unwrap();
+        let sim = &result.simulation;
         assert_eq!(sim.num_qubits, 2);
         assert_eq!(sim.statevector.len(), 4);
 
@@ -288,6 +353,9 @@ statevector:
             assert!(b.y.abs() < 1e-4);
             assert!(b.z.abs() < 1e-4);
         }
+
+        // Lossless mode should not report compression metadata.
+        assert!(result.compression.is_none());
     }
 
     #[test]
@@ -312,5 +380,36 @@ statevector:
             runtime_args_for(TurboSpinCompression::Bits(4)),
             vec!["--compression-bits", "4", "--show-statevector"]
         );
+    }
+
+    #[test]
+    fn parses_compression_metadata_from_output() {
+        let compressed_output = r#"source: QASM file /tmp/test.qasm
+qubits: 2
+dimension: 4
+norm: 0.999987234567
+
+compression_ratio: 3.450000
+compression_fidelity: 0.998543
+compression_norm_error: 1.277e-05
+compressed_payload_bytes: 8
+compressed_metadata_bytes: 29
+compression_bits: 4
+
+statevector:
+0 | 00 | re=0.706890123456 | im=0.000000000000 | magnitude=0.706890123456 | probability=0.499695000000
+1 | 01 | re=0.000000000000 | im=0.000000000000 | magnitude=0.000000000000 | probability=0.000000000000
+2 | 10 | re=0.000000000000 | im=0.000000000000 | magnitude=0.000000000000 | probability=0.000000000000
+3 | 11 | re=0.706890123456 | im=0.000000000000 | magnitude=0.706890123456 | probability=0.499695000000
+"#;
+        let result = parse_spinoza_output(compressed_output, TurboSpinCompression::Bits(4)).unwrap();
+        assert_eq!(result.simulation.num_qubits, 2);
+
+        let comp = result.compression.expect("should have compression metadata");
+        assert!((comp.ratio - 3.45).abs() < 0.01);
+        assert!((comp.fidelity - 0.998543).abs() < 1e-5);
+        assert_eq!(comp.payload_bytes, 8);
+        assert_eq!(comp.metadata_bytes, 29);
+        assert_eq!(comp.bits, 4);
     }
 }

@@ -35,7 +35,7 @@ pub enum ViewKind {
     Probability,
     StateVector,
     Bloch,
-    Benchmark,
+    Noise,
 }
 
 impl ViewKind {
@@ -46,7 +46,7 @@ impl ViewKind {
             ViewKind::Probability => "probability",
             ViewKind::StateVector => "state vector",
             ViewKind::Bloch => "bloch 3d",
-            ViewKind::Benchmark => "benchmarks",
+            ViewKind::Noise => "noise",
         }
     }
 
@@ -57,7 +57,7 @@ impl ViewKind {
             ViewKind::Probability,
             ViewKind::StateVector,
             ViewKind::Bloch,
-            ViewKind::Benchmark,
+            ViewKind::Noise,
         ]
     }
 }

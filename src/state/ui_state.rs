@@ -8,6 +8,7 @@ pub struct UiState {
 
     /// Whether the tile-picker overlay is visible (Cmd+T).
     pub tile_picker_open: bool,
+    pub tile_picker_input: String,
 
     /// One-line transient status message (drawn at the bottom).
     pub status_message: Option<(String, StatusKind)>,
@@ -26,6 +27,7 @@ impl Default for UiState {
             cmd_palette_open: false,
             cmd_palette_input: String::new(),
             tile_picker_open: false,
+            tile_picker_input: String::new(),
             status_message: None,
         }
     }

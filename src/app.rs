@@ -282,15 +282,15 @@ impl QSimApp {
                 out.push(KeyAction::SplitDir(SplitDir::Vertical, true));
             }
 
-            // Cmd + 1..6 → open that view directly (skips the picker).
-            for (n, key) in [
-                (1usize, Key::Num1),
-                (2, Key::Num2),
-                (3, Key::Num3),
-                (4, Key::Num4),
-                (5, Key::Num5),
-                (6, Key::Num6),
-            ] {
+        // Cmd + 1..6 → open that view directly (skips the picker).
+        for (n, key) in [
+            (1usize, Key::Num1),
+            (2, Key::Num2),
+            (3, Key::Num3),
+            (4, Key::Num4),
+            (5, Key::Num5),
+            (6, Key::Num6),
+        ] {
                 if i.consume_key(Modifiers::COMMAND, key) {
                     if let Some(&v) = ViewKind::picker_options().get(n - 1) {
                         out.push(KeyAction::OpenView(v));
@@ -316,6 +316,9 @@ impl QSimApp {
             }
             KeyAction::ToggleTilePicker => {
                 self.state.ui.tile_picker_open = !self.state.ui.tile_picker_open;
+                if !self.state.ui.tile_picker_open {
+                    self.state.ui.tile_picker_input.clear();
+                }
             }
             KeyAction::CloseFocused => {
                 match self.state.tiles.close_focused(self.state.focused_tile) {

@@ -10,11 +10,11 @@ pub mod bloch_3d;
 pub mod circuit_visualizer;
 pub mod command_palette;
 pub mod editor;
+pub mod noise_panel;
 pub mod probability_panel;
 pub mod state_vector;
 pub mod status_bar;
 pub mod tile_picker;
-pub mod benchmark_panel;
 
 use crate::state::AppState;
 use crate::tiling::{LeafTile, ViewKind};
@@ -29,6 +29,6 @@ pub fn render_view(view: ViewKind, ui: &mut egui::Ui, state: &mut AppState, leaf
         ViewKind::Probability => probability_panel::show(ui, state),
         ViewKind::StateVector => state_vector::show(ui, state),
         ViewKind::Bloch => bloch_3d::show(ui, state, leaf),
-        ViewKind::Benchmark => benchmark_panel::show(ui, state),
+        ViewKind::Noise => noise_panel::show(ui, state),
     }
 }

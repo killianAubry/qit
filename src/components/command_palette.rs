@@ -13,7 +13,7 @@ use crate::tiling::{auto_split_dir, ViewKind};
 
 const HINTS: &[&str] = &[
     ":sim <name>          openqasm | qiskit | turbospin",
-    ":open <view>         circuit | prob | sv | bloch | editor",
+    ":open <view>         circuit | prob | sv | bloch | editor | noise",
     ":save                write circuit.<ext> to workspace folder",
     ":load                read circuit.<ext> from workspace folder",
     ":close               close the focused tile",
@@ -227,11 +227,12 @@ fn execute(state: &mut AppState, cmd: &str, focused_rect: egui::Rect) {
 
 fn parse_view_kind(s: &str) -> Option<ViewKind> {
     match s.to_ascii_lowercase().as_str() {
-        "circuit" => Some(ViewKind::Circuit),
+        "circuit" | "c" => Some(ViewKind::Circuit),
         "prob" | "probabilities" | "p" => Some(ViewKind::Probability),
         "sv" | "state" | "statevector" => Some(ViewKind::StateVector),
         "bloch" | "b" => Some(ViewKind::Bloch),
         "editor" | "e" => Some(ViewKind::Editor),
+        "noise" | "n" => Some(ViewKind::Noise),
         _ => None,
     }
 }

@@ -12,6 +12,8 @@
 //   * Basis ordering is little-endian: bit `i` of the basis index is qubit `i`
 //     (matches Qiskit and Spinoza).
 
+use crate::state::metrics::Metrics;
+
 #[derive(Clone, Debug)]
 pub struct SimulationState {
     pub num_qubits: usize,
@@ -22,8 +24,7 @@ pub struct SimulationState {
     pub probabilities: Vec<f32>,
     /// Cached per-qubit reduced-state Bloch vector.
     pub bloch: Vec<BlochVector>,
-    pub run_time_ms: Option<f64>,
-    pub memory_mb: Option<f64>,
+    pub metrics: Metrics,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -56,8 +57,7 @@ impl SimulationState {
             statevector,
             probabilities,
             bloch,
-            run_time_ms: None,
-            memory_mb: None,
+            metrics: Metrics::default(),
         }
     }
 

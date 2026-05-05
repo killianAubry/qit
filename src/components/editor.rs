@@ -92,6 +92,7 @@ fn looks_like_openqasm_line(line: &str) -> bool {
 }
 
 pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
+    let modal_open = state.ui.cmd_palette_open || state.ui.tile_picker_open;
     let use_qasm = use_openqasm_highlight(state);
     let mut layouter = move |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| -> Arc<Galley> {
         let mut job = LayoutJob::default();
@@ -157,6 +158,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
                     .desired_width(f32::INFINITY)
                     .lock_focus(true)
                     .frame(false)
+                    .interactive(!modal_open)
                     .layouter(&mut layouter)
                     .show(ui);
 

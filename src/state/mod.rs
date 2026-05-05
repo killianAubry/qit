@@ -16,9 +16,11 @@
 // the same `statevector` source of truth.
 
 pub mod circuit;
+pub mod noise;
 pub mod simulation;
 pub mod simulator;
 pub mod ui_state;
+pub mod metrics;
 
 use std::path::PathBuf;
 
@@ -29,6 +31,8 @@ pub use circuit::Circuit;
 pub use simulation::SimulationState;
 pub use simulator::{SimulatorKind, SourceKind, TurboSpinCompression};
 pub use ui_state::{StatusKind, UiState};
+pub use noise::NoiseConfig;
+pub use metrics::{CompressionInfo, MetricsTracker};
 
 pub struct AppState {
     pub editor_text: String,
@@ -38,20 +42,18 @@ pub struct AppState {
     last_sync_simulator: SimulatorKind,
 
     pub circuit: Circuit,
-    /// Last OpenQASM parse that produced **zero** diagnostics — the grid
-    /// stays on this until the buffer is error-free again.
-    circuit_last_clean: Circuit,
+    pub circuit_last_clean: Circuit,
     pub diagnostics: Vec<Diagnostic>,
-    pub simulation: SimulationState,
     pub simulator: SimulatorKind,
     pub turbospin_compression: TurboSpinCompression,
+    pub simulation: SimulationState,
 
     pub workspace_dir: PathBuf,
-
+    pub ui: UiState,
     pub tiles: Tile,
     pub focused_tile: TileId,
-
-    pub ui: UiState,
+    pub metrics_tracker: MetricsTracker,
+    pub noise_config: NoiseConfig,
 }
 
 impl AppState {
@@ -79,9 +81,11 @@ impl AppState {
             simulator,
             turbospin_compression: TurboSpinCompression::default(),
             workspace_dir,
+            ui: UiState::default(),
             tiles,
             focused_tile,
-            ui: UiState::default(),
+            metrics_tracker: MetricsTracker::new(),
+            noise_config: NoiseConfig::default(),
         }
     }
 
@@ -153,7 +157,8 @@ impl AppState {
     /// replaces `self.simulation` so every statevector-derived panel
     /// (probability, state vector, Bloch) refreshes on the next frame.
     pub fn rerun(&mut self) -> Result<(), String> {
-        let start_time = std::time::Instant::now();
+        self.metrics_tracker.start_run();
+
         self.last_sync_simulator = self.simulator;
         self.last_synced_text = self.editor_text.clone();
 
@@ -167,31 +172,30 @@ impl AppState {
             &mut self.diagnostics,
         );
 
-        let mut sim = run_simulator(
+        let (mut sim, compression) = run_simulator(
             self.simulator,
             &self.editor_text,
             self.turbospin_compression,
         )?;
-        
-        // Calculate theoretical memory overhead for the state vector
-        // Simulator internal (Spinoza/Qiskit usually use f64 complex = 16 bytes)
-        // + UI statevector (f32 complex = 8 bytes)
-        // + UI probabilities (f32 = 4 bytes)
-        // Total = 28 bytes per amplitude
-        let bytes_per_amp = 28usize;
-        let bytes = (1usize << sim.num_qubits) * bytes_per_amp;
-        
-        // Add baseline overhead (Python/CLI startup, basic structures)
-        let baseline_bytes = if self.simulator == SimulatorKind::Qiskit {
-            50_000_000 // Python/Qiskit has ~50MB baseline
-        } else {
-            2_000_000 // Spinoza Rust CLI is very lightweight, ~2MB baseline
-        };
 
-        let memory_mb = (bytes + baseline_bytes) as f64 / 1_048_576.0;
-        
-        sim.run_time_ms = Some(start_time.elapsed().as_secs_f64() * 1000.0);
-        sim.memory_mb = Some(memory_mb);
+        // Apply noise models to the statevector before deriving panels.
+        crate::state::noise::apply_noise(
+            &mut sim.statevector,
+            sim.num_qubits,
+            &self.noise_config,
+            &self.circuit,
+        );
+        // Re-derive probabilities & Bloch from the (now noisy) statevector.
+        sim = crate::state::simulation::SimulationState::from_statevector(
+            sim.num_qubits,
+            sim.statevector,
+        );
+
+        let actual_sv_bytes = sim.statevector.capacity() * std::mem::size_of::<crate::state::simulation::Complex>()
+            + sim.probabilities.capacity() * std::mem::size_of::<f32>();
+
+        let metrics = self.metrics_tracker.finalize_run(sim.num_qubits, self.circuit.num_steps, compression, actual_sv_bytes);
+        sim.metrics = metrics;
         self.simulation = sim;
         Ok(())
     }
@@ -243,7 +247,7 @@ fn run_simulator(
     kind: SimulatorKind,
     src: &str,
     turbospin_compression: TurboSpinCompression,
-) -> Result<SimulationState, String> {
+) -> Result<(SimulationState, Option<CompressionInfo>), String> {
     #[cfg(target_arch = "wasm32")]
     {
         let _ = (kind, src, turbospin_compression);
@@ -253,10 +257,11 @@ fn run_simulator(
     #[cfg(not(target_arch = "wasm32"))]
     match kind {
         SimulatorKind::OpenQasm | SimulatorKind::Qiskit => {
-            crate::qiskit::run_circuit_source(kind, src)
+            crate::qiskit::run_circuit_source(kind, src).map(|sim| (sim, None))
         }
         SimulatorKind::TurboSpin => {
-            crate::turbospin::run_qasm_source(src, turbospin_compression)
+            let result = crate::turbospin::run_qasm_source(src, turbospin_compression)?;
+            Ok((result.simulation, result.compression))
         }
     }
 }
