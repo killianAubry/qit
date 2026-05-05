@@ -1,0 +1,27 @@
+# qsim circuit DSL — edit me.
+#
+#   qubits N             declare qubit count (1..=10)
+#   <gate> qN            single-qubit gate
+#   CNOT qC qT           two-qubit gate (control, target)
+#
+# keys5
+#   ⌘E   command palette
+#   ⌘T   open a new tile (probabilities, state vector, circuit, bloch)
+#   ⌘W   close focused tile
+#   ⌘R   re-run simulation
+#   ⌘S   save circuit.qsim to workspace folder
+#   ⌘O   load circuit.qsim from workspace folder
+#   folder icon — pick workspace directory (loads file if present)
+#   ⌘1..4   jump to circuit / probabilities / sv / bloch tile
+
+qubits 4
+
+H q0
+CNOT q0 q1
+H q2
+CNOT q2 q3
+
+M q0
+M q1
+
+H q1

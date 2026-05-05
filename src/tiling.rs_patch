@@ -1,0 +1,22 @@
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewKind::Editor => "editor",
+            ViewKind::Circuit => "circuit",
+            ViewKind::Probability => "probability",
+            ViewKind::StateVector => "state vector",
+            ViewKind::Bloch => "bloch 3d",
+            ViewKind::Benchmark => "benchmarks",
+        }
+    }
+
+    pub fn picker_options() -> &'static [ViewKind] {
+        &[
+            ViewKind::Circuit,
+            ViewKind::Probability,
+            ViewKind::StateVector,
+            ViewKind::Bloch,
+            ViewKind::Benchmark,
+            ViewKind::Editor,
+        ]
+    }
+}
