@@ -44,6 +44,7 @@ Together, this supports benchmarking **accuracy, wall-clock time, and resource s
 Full CLI and OpenQASM details: [TurboSpin/README.md](https://github.com/killianAubry/TurboSpin/blob/main/README.md).
 
 <img width="1470" height="923" alt="qit UI" src="https://github.com/user-attachments/assets/fdcfbe22-a651-421c-86cb-bba0f4519449" />
+<img width="1470" height="923" alt="image" src="https://github.com/user-attachments/assets/ffd309dd-c20c-485c-8830-1e29405c8f9a" />
 
 ---
 
