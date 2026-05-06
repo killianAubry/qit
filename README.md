@@ -14,6 +14,10 @@ contract** — every panel besides the editor and circuit visualizer reads off
 `state.simulation.statevector`; probabilities and Bloch vectors are derived
 in pure Rust.
 
+
+<img width="1470" height="923" alt="image" src="https://github.com/user-attachments/assets/fdcfbe22-a651-421c-86cb-bba0f4519449" />
+
+
 | Mode        | Editor language  | Files          | Runner |
 | ----------- | ---------------- | -------------- | ------ |
 | `openqasm`  | OpenQASM 2.0     | `circuit.qasm` | `python3 scripts/qiskit_run.py qasm <file>` |
