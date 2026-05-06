@@ -24,7 +24,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::state::TurboSpinCompression;
+use crate::state::{TurboSpinCompression, TurboSpinMode};
 use crate::state::simulation::{Complex, SimulationState};
 use crate::state::metrics::CompressionInfo;
 
@@ -56,6 +56,7 @@ pub struct TurboSpinResult {
 pub fn run_qasm_source(
     source: &str,
     compression: TurboSpinCompression,
+    mode: TurboSpinMode,
 ) -> Result<TurboSpinResult, String> {
     let manifest = manifest_path();
     if !manifest.is_file() {
@@ -99,9 +100,37 @@ pub fn run_qasm_source(
         ])
         .arg("--qasm")
         .arg(&qasm_path)
-        .args(comp_bit_args(compression))
+        .args(comp_bit_args(compression, mode))
         .output()
         .map_err(|e| format!("cargo: {e}"))?;
+    let out = if out.status.success() {
+        out
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr);
+        // Compatibility fallback: older spinoza binaries may not support
+        // `--compression-mode` yet. Retry without it.
+        if err.contains("unexpected argument '--compression-mode'") {
+            Command::new(cargo_bin())
+                .current_dir(&workspace_dir)
+                .args([
+                    "run",
+                    "--release",
+                    "--quiet",
+                    "-p",
+                    "spinoza",
+                    "--bin",
+                    "spinoza",
+                    "--",
+                ])
+                .arg("--qasm")
+                .arg(&qasm_path)
+                .args(comp_bit_args_legacy(compression))
+                .output()
+                .map_err(|e| format!("cargo: {e}"))?
+        } else {
+            out
+        }
+    };
 
     let _ = std::fs::remove_file(&qasm_path);
 
@@ -118,7 +147,7 @@ pub fn run_qasm_source(
 /// `gate` defs from `qelib1.inc` are not required after stripping). Lines starting
 /// with `#` are dropped — strict OpenQASM 2 (and the `qasm` lexer) treat `#` as an
 /// illegal character when comments use `#` instead of `//`.
-fn sanitize_for_spinoza(src: &str) -> String {
+pub fn sanitize_for_spinoza(src: &str) -> String {
     const DROP_HEADS: &[&str] = &[
         "include", "creg", "measure", "barrier", "reset", "if", "opaque", "gate",
     ];
@@ -141,7 +170,20 @@ fn sanitize_for_spinoza(src: &str) -> String {
     out
 }
 
-fn comp_bit_args(compression: TurboSpinCompression) -> Vec<String> {
+fn comp_bit_args(compression: TurboSpinCompression, mode: TurboSpinMode) -> Vec<String> {
+    let bits = compression.bits().unwrap_or(0);
+    let mut args = vec![
+        "--comp-bit".to_string(),
+        bits.to_string(),
+    ];
+    if bits > 0 {
+        args.push("--compression-mode".to_string());
+        args.push(mode.cli_arg().to_string());
+    }
+    args
+}
+
+fn comp_bit_args_legacy(compression: TurboSpinCompression) -> Vec<String> {
     let bits = compression.bits().unwrap_or(0);
     vec![
         "--comp-bit".to_string(),
@@ -153,6 +195,7 @@ fn comp_bit_args(compression: TurboSpinCompression) -> Vec<String> {
 pub fn run_qasm_source(
     _source: &str,
     _compression: TurboSpinCompression,
+    _mode: TurboSpinMode,
 ) -> Result<TurboSpinResult, String> {
     Err("TurboSpin runs on desktop builds only".into())
 }
@@ -187,7 +230,7 @@ fn first_useful_line(s: &str) -> String {
 ///
 /// Supports the current binary (plain amplitude rows only) and legacy layouts that
 /// include `qubits:` / `statevector:` headers and optional compression metadata.
-fn parse_spinoza_output(stdout: &str, compression: TurboSpinCompression) -> Result<TurboSpinResult, String> {
+pub fn parse_spinoza_output(stdout: &str, compression: TurboSpinCompression) -> Result<TurboSpinResult, String> {
     let mut declared_qubits: Option<usize> = None;
     let mut amps: Vec<Complex> = Vec::new();
 
@@ -313,7 +356,7 @@ fn parse_amplitude_line(line: &str) -> Option<(f64, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::TurboSpinCompression;
+    use crate::state::{TurboSpinCompression, TurboSpinMode};
 
     const BELL_OUTPUT: &str = r#"source: QASM file /tmp/qsim_test.qasm
 qubits: 2
@@ -372,12 +415,17 @@ statevector:
     #[test]
     fn selects_expected_comp_bit_args() {
         assert_eq!(
-            comp_bit_args(TurboSpinCompression::Lossless),
+            comp_bit_args(TurboSpinCompression::Lossless, TurboSpinMode::Bacqs),
             vec!["--comp-bit".to_string(), "0".to_string()]
         );
         assert_eq!(
-            comp_bit_args(TurboSpinCompression::Bits(4)),
-            vec!["--comp-bit".to_string(), "4".to_string()]
+            comp_bit_args(TurboSpinCompression::Bits(4), TurboSpinMode::Bacqs),
+            vec![
+                "--comp-bit".to_string(),
+                "4".to_string(),
+                "--compression-mode".to_string(),
+                "bacqs".to_string(),
+            ]
         );
     }
 

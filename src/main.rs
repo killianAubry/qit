@@ -9,6 +9,7 @@ mod app;
 mod components;
 mod dsl;
 mod grid;
+mod old_turbospin;
 mod qiskit;
 mod state;
 mod theme;

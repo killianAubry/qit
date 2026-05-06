@@ -9,7 +9,11 @@
 pub mod bloch_3d;
 pub mod circuit_visualizer;
 pub mod command_palette;
+pub mod config_popup;
+pub mod density_matrix_panel;
 pub mod editor;
+pub mod entanglement_panel;
+pub mod fidelity_panel;
 pub mod noise_panel;
 pub mod probability_panel;
 pub mod state_vector;
@@ -30,5 +34,8 @@ pub fn render_view(view: ViewKind, ui: &mut egui::Ui, state: &mut AppState, leaf
         ViewKind::StateVector => state_vector::show(ui, state),
         ViewKind::Bloch => bloch_3d::show(ui, state, leaf),
         ViewKind::Noise => noise_panel::show(ui, state),
+        ViewKind::Fidelity => fidelity_panel::show(ui, state),
+        ViewKind::Entanglement => entanglement_panel::show(ui, state),
+        ViewKind::DensityMatrix => density_matrix_panel::show(ui, state),
     }
 }

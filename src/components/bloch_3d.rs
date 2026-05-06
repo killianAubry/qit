@@ -10,6 +10,9 @@
 // yaw/pitch — every sphere in a tile rotates together for a consistent
 // "scene" feel.
 //
+// In compare mode, each sphere shows a second statevector arrow (green) for
+// the compare simulator.
+//
 // Coordinate conventions:
 //   • World X → right
 //   • World Y → up
@@ -32,7 +35,8 @@ const ORIGIN_EPSILON: f32 = 1e-3;
 
 pub fn show(ui: &mut egui::Ui, state: &mut AppState, leaf: &mut LeafTile) {
     let n_qubits = state.simulation.num_qubits;
-    header(ui, n_qubits);
+    let has_compare = state.compare_simulation.is_some();
+    header(ui, n_qubits, state, has_compare);
     ui.add_space(space::SM);
 
     let avail_w = ui.available_width();
@@ -46,6 +50,15 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, leaf: &mut LeafTile) {
         state.simulation.bloch.clone()
     };
     let n_display = bloch.len();
+
+    // Compare Bloch vectors
+    let cmp_bloch: Option<Vec<BlochVector>> = state.compare_simulation.as_ref().and_then(|cs| {
+        if cs.statevector.len() == (1usize << cs.num_qubits) {
+            Some(bloch_from_statevector(&cs.statevector, cs.num_qubits))
+        } else {
+            Some(cs.bloch.clone())
+        }
+    });
 
     egui::ScrollArea::vertical()
         .id_salt(("bloch_scroll", leaf.id.0))
@@ -62,7 +75,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, leaf: &mut LeafTile) {
                         if q >= n_display {
                             break;
                         }
-                        draw_one(ui, leaf, q, bloch[q], diameter);
+                        let cmp_b = cmp_bloch.as_ref().and_then(|v| v.get(q).copied());
+                        draw_one(ui, leaf, q, bloch[q], cmp_b, diameter, has_compare);
                     }
                 });
                 ui.add_space(space::SM);
@@ -70,7 +84,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, leaf: &mut LeafTile) {
         });
 }
 
-fn header(ui: &mut egui::Ui, n_qubits: usize) {
+fn header(ui: &mut egui::Ui, n_qubits: usize, state: &AppState, has_compare: bool) {
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new("bloch")
@@ -87,6 +101,31 @@ fn header(ui: &mut egui::Ui, n_qubits: usize) {
             .color(color::TEXT_DIM)
             .monospace(),
         );
+        if has_compare {
+            ui.add_space(space::SM);
+            ui.label(
+                egui::RichText::new(state.simulator.label())
+                    .color(color::ACCENT_YELLOW)
+                    .monospace()
+                    .size(11.0),
+            );
+            ui.add_space(space::XS);
+            ui.label(
+                egui::RichText::new("vs")
+                    .color(color::TEXT_DIM)
+                    .monospace()
+                    .size(11.0),
+            );
+            ui.add_space(space::XS);
+            if let Some(cmp) = state.compare_simulator {
+                ui.label(
+                    egui::RichText::new(cmp.label())
+                        .color(color::ACCENT_GREEN)
+                        .monospace()
+                        .size(11.0),
+                );
+            }
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
                 egui::RichText::new("drag to rotate")
@@ -107,7 +146,15 @@ fn pick_diameter(avail_w: f32, n: usize) -> f32 {
     }
 }
 
-fn draw_one(ui: &mut egui::Ui, leaf: &mut LeafTile, q: usize, b: BlochVector, d: f32) {
+fn draw_one(
+    ui: &mut egui::Ui,
+    leaf: &mut LeafTile,
+    q: usize,
+    b: BlochVector,
+    cmp_b: Option<BlochVector>,
+    d: f32,
+    _has_compare: bool,
+) {
     let row_h = d + 22.0;
     let row_w = d + 96.0;
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(row_w, row_h), Sense::click_and_drag());
@@ -138,7 +185,28 @@ fn draw_one(ui: &mut egui::Ui, leaf: &mut LeafTile, q: usize, b: BlochVector, d:
     draw_axis(&painter, center, r, yaw, pitch, [0.0, 1.0, 0.0], "z", color::ACCENT_PURPLE);
     draw_axis(&painter, center, r, yaw, pitch, [0.0, 0.0, 1.0], "y", color::TEXT_MUTED);
 
-    // The bloch vector itself (Bloch (x,y,z) → world (x, z, y)).
+    // Compare vector (drawn first, behind primary)
+    if let Some(cb) = cmp_b {
+        let cmp_len = (cb.x * cb.x + cb.y * cb.y + cb.z * cb.z).sqrt();
+        if cmp_len > ORIGIN_EPSILON {
+            let tip_world = rotate(yaw, pitch, [cb.x, cb.z, cb.y]);
+            let tip_2d = project(tip_world, center, r);
+            let depth_t = ((tip_world[2] + 1.0) * 0.5).clamp(0.0, 1.0);
+            let tip_color = mix(color::ACCENT_GREEN, MIN_ALPHA + depth_t * (1.0 - MIN_ALPHA));
+            painter.line_segment([center, tip_2d], Stroke::new(1.8, tip_color));
+            painter.circle_filled(tip_2d, 3.0, tip_color);
+        } else {
+            // Mixed state marker for compare
+            painter.circle_filled(center, 2.8, mix(color::ACCENT_GREEN, 0.8));
+            painter.circle_stroke(
+                center,
+                5.5,
+                Stroke::new(0.8, mix(color::ACCENT_GREEN, 0.22)),
+            );
+        }
+    }
+
+    // Primary Bloch vector (Bloch (x,y,z) → world (x, z, y)).
     let vec_len = (b.x * b.x + b.y * b.y + b.z * b.z).sqrt();
     if vec_len <= ORIGIN_EPSILON {
         // Mixed states live at the center of the Bloch ball. A zero-length
@@ -197,6 +265,22 @@ fn draw_one(ui: &mut egui::Ui, leaf: &mut LeafTile, q: usize, b: BlochVector, d:
         FontId::monospace(11.0),
         color::TEXT_DIM,
     );
+
+    // Compare vector coordinates (compact, below primary)
+    if let Some(cb) = cmp_b {
+        let cmp_len = (cb.x * cb.x + cb.y * cb.y + cb.z * cb.z).sqrt();
+        painter.text(
+            Pos2::new(text_x, center.y + 54.0),
+            egui::Align2::LEFT_CENTER,
+            if cmp_len <= ORIGIN_EPSILON {
+                "cmp  mixed".to_string()
+            } else {
+                format!("cmp {:.2} {:.2} {:.2}", cb.x, cb.y, cb.z)
+            },
+            FontId::monospace(10.0),
+            mix(color::ACCENT_GREEN, 0.9),
+        );
+    }
 }
 
 #[derive(Clone, Copy)]

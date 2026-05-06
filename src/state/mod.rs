@@ -29,7 +29,7 @@ use crate::tiling::{Tile, TileId, ViewKind};
 
 pub use circuit::Circuit;
 pub use simulation::SimulationState;
-pub use simulator::{SimulatorKind, SourceKind, TurboSpinCompression};
+pub use simulator::{SimulatorKind, SourceKind, TurboSpinCompression, TurboSpinMode};
 pub use ui_state::{StatusKind, UiState};
 pub use noise::NoiseConfig;
 pub use metrics::{CompressionInfo, MetricsTracker};
@@ -46,7 +46,16 @@ pub struct AppState {
     pub diagnostics: Vec<Diagnostic>,
     pub simulator: SimulatorKind,
     pub turbospin_compression: TurboSpinCompression,
+    pub turbospin_mode: TurboSpinMode,
     pub simulation: SimulationState,
+
+    /// Compare mode: when set, `rerun()` also executes this simulator and
+    /// stores its result in `compare_simulation`. Panels overlay the two
+    /// results in different colours.
+    pub compare_simulator: Option<SimulatorKind>,
+    pub compare_simulation: Option<SimulationState>,
+    pub compare_compression: TurboSpinCompression,
+    pub compare_turbospin_mode: TurboSpinMode,
 
     pub workspace_dir: PathBuf,
     pub ui: UiState,
@@ -58,7 +67,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        let simulator = SimulatorKind::OpenQasm;
+        let simulator = SimulatorKind::Qiskit;
         let editor_text = String::new();
 
         let (circuit, diagnostics) = parse_for(simulator, &editor_text);
@@ -80,6 +89,11 @@ impl AppState {
             simulation,
             simulator,
             turbospin_compression: TurboSpinCompression::default(),
+            turbospin_mode: TurboSpinMode::default(),
+            compare_simulator: None,
+            compare_simulation: None,
+            compare_compression: TurboSpinCompression::default(),
+            compare_turbospin_mode: TurboSpinMode::default(),
             workspace_dir,
             ui: UiState::default(),
             tiles,
@@ -156,6 +170,9 @@ impl AppState {
     /// Run the editor source through the selected simulator. On success
     /// replaces `self.simulation` so every statevector-derived panel
     /// (probability, state vector, Bloch) refreshes on the next frame.
+    ///
+    /// When `compare_simulator` is set, also runs the compare simulator and
+    /// stores its result in `compare_simulation`.
     pub fn rerun(&mut self) -> Result<(), String> {
         self.metrics_tracker.start_run();
 
@@ -176,6 +193,7 @@ impl AppState {
             self.simulator,
             &self.editor_text,
             self.turbospin_compression,
+            self.turbospin_mode,
         )?;
 
         // Apply noise models to the statevector before deriving panels.
@@ -197,6 +215,35 @@ impl AppState {
         let metrics = self.metrics_tracker.finalize_run(sim.num_qubits, self.circuit.num_steps, compression, actual_sv_bytes);
         sim.metrics = metrics;
         self.simulation = sim;
+
+        // --- Compare simulator run ---
+        if let Some(cmp_kind) = self.compare_simulator {
+            let cmp_mode = if cmp_kind == SimulatorKind::TurboSpin {
+                self.compare_turbospin_mode
+            } else {
+                self.turbospin_mode
+            };
+            match run_simulator(cmp_kind, &self.editor_text, self.compare_compression, cmp_mode) {
+                Ok((mut cmp_sim, _cmp_compression)) => {
+                    crate::state::noise::apply_noise(
+                        &mut cmp_sim.statevector,
+                        cmp_sim.num_qubits,
+                        &self.noise_config,
+                        &self.circuit,
+                    );
+                    cmp_sim = SimulationState::from_statevector(
+                        cmp_sim.num_qubits,
+                        cmp_sim.statevector,
+                    );
+                    self.compare_simulation = Some(cmp_sim);
+                }
+                Err(e) => {
+                    self.compare_simulation = None;
+                    self.ui.flash(format!("compare run failed: {e}"), StatusKind::Err);
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -247,20 +294,25 @@ fn run_simulator(
     kind: SimulatorKind,
     src: &str,
     turbospin_compression: TurboSpinCompression,
+    turbospin_mode: TurboSpinMode,
 ) -> Result<(SimulationState, Option<CompressionInfo>), String> {
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (kind, src, turbospin_compression);
+        let _ = (kind, src, turbospin_compression, turbospin_mode);
         return Err("run: desktop builds only".into());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     match kind {
-        SimulatorKind::OpenQasm | SimulatorKind::Qiskit => {
+        SimulatorKind::Qiskit => {
             crate::qiskit::run_circuit_source(kind, src).map(|sim| (sim, None))
         }
         SimulatorKind::TurboSpin => {
-            let result = crate::turbospin::run_qasm_source(src, turbospin_compression)?;
+            let result = crate::turbospin::run_qasm_source(src, turbospin_compression, turbospin_mode)?;
+            Ok((result.simulation, result.compression))
+        }
+        SimulatorKind::OldTurboSpin => {
+            let result = crate::old_turbospin::run_qasm_source(src, turbospin_compression)?;
             Ok((result.simulation, result.compression))
         }
     }

@@ -36,6 +36,9 @@ pub enum ViewKind {
     StateVector,
     Bloch,
     Noise,
+    Fidelity,
+    Entanglement,
+    DensityMatrix,
 }
 
 impl ViewKind {
@@ -47,6 +50,9 @@ impl ViewKind {
             ViewKind::StateVector => "state vector",
             ViewKind::Bloch => "bloch 3d",
             ViewKind::Noise => "noise",
+            ViewKind::Fidelity => "fidelity",
+            ViewKind::Entanglement => "entanglement",
+            ViewKind::DensityMatrix => "density matrix",
         }
     }
 
@@ -58,6 +64,9 @@ impl ViewKind {
             ViewKind::StateVector,
             ViewKind::Bloch,
             ViewKind::Noise,
+            ViewKind::Fidelity,
+            ViewKind::Entanglement,
+            ViewKind::DensityMatrix,
         ]
     }
 }

@@ -11,62 +11,59 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SimulatorKind {
     /// OpenQASM 2 source — runs through Qiskit's `from_qasm_str`.
-    OpenQasm,
-    /// Python source — exec'd by the bundled runner; pulls out a
-    /// `QuantumCircuit` named `qc` / `circuit`.
     Qiskit,
     /// OpenQASM 2 source — runs through the Spinoza-based TurboSpin native
     /// binary (`cargo run -p spinoza --bin spinoza -- --qasm … --comp-bit …`).
     TurboSpin,
+    /// OpenQASM 2 source — runs through the older TurboSpin snapshot
+    /// (`OldTurboSpin/` workspace).
+    OldTurboSpin,
 }
 
 impl SimulatorKind {
     pub const ALL: &'static [SimulatorKind] = &[
-        SimulatorKind::OpenQasm,
         SimulatorKind::Qiskit,
         SimulatorKind::TurboSpin,
+        SimulatorKind::OldTurboSpin,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
-            SimulatorKind::OpenQasm => "openqasm",
             SimulatorKind::Qiskit => "qiskit",
             SimulatorKind::TurboSpin => "turbospin",
+            SimulatorKind::OldTurboSpin => "old-turbospin",
         }
     }
 
     /// File extension for `circuit.<ext>` in the workspace folder.
     pub fn circuit_extension(self) -> &'static str {
         match self {
-            SimulatorKind::OpenQasm => "qasm",
-            SimulatorKind::Qiskit => "py",
+            SimulatorKind::Qiskit => "qasm",
             SimulatorKind::TurboSpin => "qasm",
+            SimulatorKind::OldTurboSpin => "qasm",
         }
     }
 
-    /// Mode arg passed to the bundled Python runner.  Only meaningful for
-    /// `OpenQasm` / `Qiskit`; `TurboSpin` has its own runner module.
+    /// Mode arg passed to the bundled Python runner.
     pub fn runner_mode(self) -> &'static str {
         match self {
-            SimulatorKind::OpenQasm | SimulatorKind::TurboSpin => "qasm",
-            SimulatorKind::Qiskit => "py",
+            SimulatorKind::Qiskit => "qasm",
+            SimulatorKind::TurboSpin | SimulatorKind::OldTurboSpin => "qasm",
         }
     }
 
-    /// Which highlighter / structural parser handles the editor buffer for
-    /// this simulator.  TurboSpin and OpenQASM share the QASM family.
+    /// Which highlighter / structural parser handles the editor buffer.
     pub fn source_kind(self) -> SourceKind {
         match self {
-            SimulatorKind::OpenQasm | SimulatorKind::TurboSpin => SourceKind::OpenQasm,
-            SimulatorKind::Qiskit => SourceKind::Python,
+            SimulatorKind::Qiskit | SimulatorKind::TurboSpin | SimulatorKind::OldTurboSpin => SourceKind::OpenQasm,
         }
     }
 
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
-            "openqasm" | "qasm" | "oq" => Some(Self::OpenQasm),
             "qiskit" | "py" | "python" | "q" => Some(Self::Qiskit),
             "turbospin" | "spin" | "spinoza" | "ts" => Some(Self::TurboSpin),
+            "old-turbospin" | "oldts" | "ots" | "oldturbospin" => Some(Self::OldTurboSpin),
             _ => None,
         }
     }
@@ -74,8 +71,7 @@ impl SimulatorKind {
     /// Default template the editor is seeded with for this mode.
     pub fn default_template(self) -> &'static str {
         match self {
-            SimulatorKind::OpenQasm | SimulatorKind::TurboSpin => OPENQASM_TEMPLATE,
-            SimulatorKind::Qiskit => QISKIT_TEMPLATE,
+            SimulatorKind::Qiskit | SimulatorKind::TurboSpin | SimulatorKind::OldTurboSpin => OPENQASM_TEMPLATE,
         }
     }
 }
@@ -84,6 +80,41 @@ impl SimulatorKind {
 pub enum TurboSpinCompression {
     Lossless,
     Bits(u8),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TurboSpinMode {
+    Bacqs,
+    Rpdq,
+}
+
+impl Default for TurboSpinMode {
+    fn default() -> Self {
+        Self::Bacqs
+    }
+}
+
+impl TurboSpinMode {
+    pub const ALL: &'static [TurboSpinMode] = &[TurboSpinMode::Bacqs, TurboSpinMode::Rpdq];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TurboSpinMode::Bacqs => "bacqs",
+            TurboSpinMode::Rpdq => "rpdq",
+        }
+    }
+
+    pub fn cli_arg(self) -> &'static str {
+        self.label()
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "bacqs" | "b" => Some(Self::Bacqs),
+            "rpdq" | "residual" | "rp" | "r" => Some(Self::Rpdq),
+            _ => None,
+        }
+    }
 }
 
 impl Default for TurboSpinCompression {
@@ -137,7 +168,7 @@ impl TurboSpinCompression {
 
 #[cfg(test)]
 mod tests {
-    use super::TurboSpinCompression;
+    use super::{TurboSpinCompression, TurboSpinMode};
 
     #[test]
     fn parses_turbospin_compression_strings() {
@@ -154,6 +185,13 @@ mod tests {
             Some(TurboSpinCompression::Bits(7))
         );
         assert_eq!(TurboSpinCompression::from_str("9"), None);
+    }
+
+    #[test]
+    fn parses_turbospin_mode_strings() {
+        assert_eq!(TurboSpinMode::from_str("bacqs"), Some(TurboSpinMode::Bacqs));
+        assert_eq!(TurboSpinMode::from_str("rpdq"), Some(TurboSpinMode::Rpdq));
+        assert_eq!(TurboSpinMode::from_str("unknown"), None);
     }
 }
 
@@ -179,15 +217,4 @@ cx q[0], q[1];
 
 measure q[0] -> c[0];
 measure q[1] -> c[1];
-"#;
-
-const QISKIT_TEMPLATE: &str = r#"# Bell pair — Qiskit (Python)
-# keys: ⌘R run · ⌘S save · ⌘O load · ⌘E palette · ⌘T new tile
-
-from qiskit import QuantumCircuit
-
-qc = QuantumCircuit(2, 2)
-qc.h(0)
-qc.cx(0, 1)
-qc.measure([0, 1], [0, 1])
 "#;

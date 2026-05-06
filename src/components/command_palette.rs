@@ -7,20 +7,25 @@
 
 use egui::{Align2, CornerRadius, Key, RichText, Stroke, StrokeKind};
 
-use crate::state::{AppState, SimulatorKind, StatusKind, TurboSpinCompression};
+use crate::state::{AppState, SimulatorKind, StatusKind, TurboSpinCompression, TurboSpinMode};
 use crate::theme::{color, space};
 use crate::tiling::{auto_split_dir, ViewKind};
 
 const HINTS: &[&str] = &[
-    ":sim <name>          openqasm | qiskit | turbospin",
-    ":open <view>         circuit | prob | sv | bloch | editor | noise",
+    ":sim <name>          qiskit | turbospin | old-turbospin",
+    ":open <view>         circuit | prob | sv | bloch | editor | noise | fid | ent | dm",
+    ":compare <name|off>  compare against another simulator (or off)",
     ":save                write circuit.<ext> to workspace folder",
     ":load                read circuit.<ext> from workspace folder",
     ":close               close the focused tile",
-    ":run                 run the editor source through the selected simulator (also ⌘R)",
-    ":compress <exact|1..8> turbospin compression setting",
+    ":run                 run through selected sim(s) — also ⌘R",
+    ":compress <exact|1..8> primary turbospin / old-turbo bit depth",
+    ":tsmode <bacqs|rpdq> turbospin compression mode",
+    ":compare_compress <exact|1..8>  compare turbo when vs is turbospin or old-turbospin",
+    ":compare_tsmode <bacqs|rpdq> compare turbospin mode",
     ":reset               replace the buffer with the current mode's template",
     ":clear               clear the editor",
+    ":config              open config popup — also ⌘,",
     ":help                show this list in the status line",
 ];
 
@@ -114,20 +119,25 @@ fn execute(state: &mut AppState, cmd: &str, focused_rect: egui::Rect) {
         "run" => match state.rerun() {
             Ok(()) => {
                 let l = state.simulator.label();
-                state.ui.flash(format!("run ({l}) ok"), StatusKind::Ok);
+                if let Some(cmp) = state.compare_simulator {
+                    state.ui.flash(format!("run ({l} vs {}) ok", cmp.label()), StatusKind::Ok);
+                } else {
+                    state.ui.flash(format!("run ({l}) ok"), StatusKind::Ok);
+                }
             }
             Err(e) => state.ui.flash(e, StatusKind::Err),
         },
         "compress" | "tsbits" | "tscomp" => match parts.next().and_then(TurboSpinCompression::from_str) {
             Some(choice) => {
                 state.turbospin_compression = choice;
-                let suffix = if state.simulator == SimulatorKind::TurboSpin {
-                    "  ⌘R to rerun"
-                } else {
-                    "  (saved for turbospin)"
-                };
+                let suffix =
+                    if state.simulator == SimulatorKind::TurboSpin || state.simulator == SimulatorKind::OldTurboSpin {
+                        "  ⌘R to rerun"
+                    } else {
+                        "  (applied when primary is turbospin or old-turbospin)"
+                    };
                 state.ui.flash(
-                    format!("turbospin compression: {}{suffix}", choice.label()),
+                    format!("primary turbospin bit depth: {}{suffix}", choice.label()),
                     StatusKind::Ok,
                 );
             }
@@ -135,6 +145,69 @@ fn execute(state: &mut AppState, cmd: &str, focused_rect: egui::Rect) {
                 .ui
                 .flash("usage: :compress <exact|1..8>", StatusKind::Err),
         },
+        "compare_compress" | "vcompress" | "vstsbits" => {
+            match parts.next().and_then(TurboSpinCompression::from_str) {
+                Some(choice) => {
+                    state.compare_compression = choice;
+                    let ok_cmp = matches!(
+                        state.compare_simulator,
+                        Some(SimulatorKind::TurboSpin | SimulatorKind::OldTurboSpin)
+                    );
+                    let suffix = if ok_cmp {
+                        "  ⌘R to rerun"
+                    } else {
+                        "  (applied when vs is turbospin or old-turbospin)"
+                    };
+                    state.ui.flash(
+                        format!("compare turbospin bit depth: {}{suffix}", choice.label()),
+                        StatusKind::Ok,
+                    );
+                }
+                None => state.ui.flash(
+                    "usage: :compare_compress <exact|1..8>",
+                    StatusKind::Err,
+                ),
+            }
+        },
+        "tsmode" | "mode" => match parts.next().and_then(TurboSpinMode::from_str) {
+            Some(mode) => {
+                state.turbospin_mode = mode;
+                let suffix = if state.simulator == SimulatorKind::TurboSpin {
+                    "  ⌘R to rerun"
+                } else {
+                    "  (applied when primary is turbospin)"
+                };
+                state.ui.flash(
+                    format!("turbospin mode: {}{suffix}", mode.label()),
+                    StatusKind::Ok,
+                );
+            }
+            None => state
+                .ui
+                .flash("usage: :tsmode <bacqs|rpdq>", StatusKind::Err),
+        },
+        "compare_tsmode" | "vsmode" => match parts.next().and_then(TurboSpinMode::from_str) {
+            Some(mode) => {
+                state.compare_turbospin_mode = mode;
+                let suffix = if state.compare_simulator == Some(SimulatorKind::TurboSpin) {
+                    "  ⌘R to rerun"
+                } else {
+                    "  (applied when vs is turbospin)"
+                };
+                state.ui.flash(
+                    format!("compare turbospin mode: {}{suffix}", mode.label()),
+                    StatusKind::Ok,
+                );
+            }
+            None => state
+                .ui
+                .flash("usage: :compare_tsmode <bacqs|rpdq>", StatusKind::Err),
+        },
+        "config" | "cfg" => {
+            state.ui.config_popup_open = !state.ui.config_popup_open;
+            let status = if state.ui.config_popup_open { "opened" } else { "closed" };
+            state.ui.flash(format!("config {status}"), StatusKind::Info);
+        }
         "clear" => {
             state.editor_text.clear();
             state.ensure_synced();
@@ -172,7 +245,7 @@ fn execute(state: &mut AppState, cmd: &str, focused_rect: egui::Rect) {
             }
             None => state
                 .ui
-                .flash("usage: :sim <openqasm|qiskit|turbospin>", StatusKind::Err),
+                .flash("usage: :sim <qiskit|turbospin|old-turbospin>", StatusKind::Err),
         },
         "open" => match parts.next().and_then(parse_view_kind) {
             Some(v) => {
@@ -207,6 +280,33 @@ fn execute(state: &mut AppState, cmd: &str, focused_rect: egui::Rect) {
             }
             Err(e) => state.ui.flash(e, StatusKind::Err),
         },
+        "compare" | "cmp" => {
+            let arg = parts.next().unwrap_or("");
+            if arg.is_empty() || arg == "off" || arg == "none" {
+                state.compare_simulator = None;
+                state.compare_simulation = None;
+                state.ui.flash("compare off", StatusKind::Ok);
+            } else if let Some(s) = SimulatorKind::from_str(arg) {
+                if s == state.simulator {
+                    state.ui.flash(
+                        format!("cannot compare {} against itself", s.label()),
+                        StatusKind::Err,
+                    );
+                } else {
+                    state.compare_simulator = Some(s);
+                    state.compare_simulation = None;
+                    state.ui.flash(
+                        format!("compare: {} vs {}  ⌘R to rerun", state.simulator.label(), s.label()),
+                        StatusKind::Ok,
+                    );
+                }
+            } else {
+                state.ui.flash(
+                    "usage: :compare <qiskit|turbospin|old-turbospin|off>",
+                    StatusKind::Err,
+                );
+            }
+        }
         "close" => match state.tiles.close_focused(state.focused_tile) {
             crate::tiling::CloseResult::Closed(id) => {
                 state.focused_tile = id;
@@ -233,6 +333,9 @@ fn parse_view_kind(s: &str) -> Option<ViewKind> {
         "bloch" | "b" => Some(ViewKind::Bloch),
         "editor" | "e" => Some(ViewKind::Editor),
         "noise" | "n" => Some(ViewKind::Noise),
+        "fidelity" | "fid" | "f" => Some(ViewKind::Fidelity),
+        "entanglement" | "ent" => Some(ViewKind::Entanglement),
+        "density" | "dm" | "rho" => Some(ViewKind::DensityMatrix),
         _ => None,
     }
 }

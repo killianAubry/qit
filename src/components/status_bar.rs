@@ -1,12 +1,12 @@
 // Status bar — minimal chrome only.
 //
-// Top: workspace folder (opens native picker, sets save/load directory) +
-// themed simulator ComboBox + TurboSpin compression selector when relevant.
+// Top: workspace folder (opens native picker) + simulator label +
+// config button (Cmd+,) that opens the full config popup.
 // Bottom: transient `status_message` only.
 
 use egui::{CornerRadius, RichText, Sense, Stroke, StrokeKind, Vec2};
 
-use crate::state::{AppState, SimulatorKind, StatusKind, TurboSpinCompression};
+use crate::state::{AppState, SimulatorKind, StatusKind};
 use crate::theme::{color, space};
 use crate::workspace;
 
@@ -21,12 +21,77 @@ pub fn show_top(ui: &mut egui::Ui, state: &mut AppState) {
             workspace::pick_workspace_folder(state);
         }
 
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.add_space(space::MD);
+
+        // Active simulator indicator
+        let sim_label = state.simulator.label();
+        ui.label(
+            RichText::new(format!("● {}", sim_label))
+                .color(color::ACCENT_YELLOW)
+                .monospace()
+                .size(12.0),
+        );
+
+        // Compare indicator
+        if let Some(cmp) = state.compare_simulator {
             ui.add_space(space::SM);
-            combo_sim(ui, state);
-            if state.simulator == SimulatorKind::TurboSpin {
-                ui.add_space(space::SM);
-                combo_turbospin_compression(ui, state);
+            ui.label(RichText::new("vs").color(color::TEXT_DIM).monospace().size(11.0));
+            ui.add_space(space::XS);
+            ui.label(
+                RichText::new(cmp.label())
+                    .color(color::ACCENT_GREEN)
+                    .monospace()
+                    .size(12.0),
+            );
+        }
+
+        // TurboSpin badges
+        if state.simulator == SimulatorKind::TurboSpin {
+            ui.add_space(space::SM);
+            ui.label(
+                RichText::new(format!("[{}]", state.turbospin_mode.label()))
+                    .color(color::TEXT_MUTED)
+                    .monospace()
+                    .size(11.0),
+            );
+        }
+        if state.simulator == SimulatorKind::TurboSpin
+            || state.simulator == SimulatorKind::OldTurboSpin
+        {
+            ui.add_space(space::XS);
+            ui.label(
+                RichText::new(format!("[{}]", state.turbospin_compression.label()))
+                    .color(color::TEXT_DIM)
+                    .monospace()
+                    .size(11.0),
+            );
+        }
+
+        // Noise status
+        if state.noise_config.noise_enabled {
+            ui.add_space(space::SM);
+            ui.label(
+                RichText::new("[noise]")
+                    .color(color::ACCENT_GREEN)
+                    .monospace()
+                    .size(11.0),
+            );
+        }
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Config button
+            let btn_resp = ui.add(
+                egui::Button::new(
+                    RichText::new("config ⌘,")
+                        .monospace()
+                        .color(color::TEXT_MUTED)
+                        .size(11.0),
+                )
+                .fill(color::BG_ELEVATED)
+                .min_size(Vec2::new(90.0, 20.0)),
+            );
+            if btn_resp.clicked() {
+                state.ui.config_popup_open = !state.ui.config_popup_open;
             }
         });
     });
@@ -34,7 +99,7 @@ pub fn show_top(ui: &mut egui::Ui, state: &mut AppState) {
 
 fn workspace_tooltip(state: &AppState) -> String {
     format!(
-        "{}\n{}\n⌘S save · ⌘O open .qasm…",
+        "{}\n{}\n⌘S save · ⌘O open .qasm… · ⌘, config",
         state.workspace_dir.display(),
         state.circuit_file_path().display(),
     )
@@ -64,131 +129,6 @@ fn folder_glyph(ui: &mut egui::Ui) -> egui::Response {
     resp
 }
 
-fn combo_sim(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.scope(|ui| {
-        style_combo_widgets(ui);
-
-        let prev = state.simulator;
-
-        egui::ComboBox::from_id_salt("top_sim")
-            .width(152.0)
-            .selected_text(
-                RichText::new(state.simulator.label())
-                    .monospace()
-                    .color(color::TEXT_PRIMARY),
-            )
-            .show_ui(ui, |ui| {
-                for &kind in SimulatorKind::ALL {
-                    ui.selectable_value(&mut state.simulator, kind, kind.label());
-                }
-            });
-
-        if state.simulator != prev {
-            on_simulator_changed(state, prev);
-        }
-    });
-}
-
-fn combo_turbospin_compression(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.scope(|ui| {
-        style_combo_widgets(ui);
-
-        let prev = state.turbospin_compression;
-        let selected = format!("ts {}", state.turbospin_compression.label());
-
-        let resp = egui::ComboBox::from_id_salt("top_turbospin_compression")
-            .width(110.0)
-            .selected_text(
-                RichText::new(selected)
-                    .monospace()
-                    .color(color::TEXT_PRIMARY),
-            )
-            .show_ui(ui, |ui| {
-                for &choice in TurboSpinCompression::ALL {
-                    ui.selectable_value(
-                        &mut state.turbospin_compression,
-                        choice,
-                        choice.label(),
-                    );
-                }
-            })
-            .response
-            .on_hover_text(
-                "TurboSpin compression\nexact = --comp-bit 0 (raw Spinoza)\n1..8 = BACQS hybrid path (--comp-bit N)",
-            );
-
-        let _ = resp;
-
-        if state.turbospin_compression != prev {
-            state.ui.flash(
-                format!(
-                    "turbospin compression: {}  ⌘R to rerun",
-                    state.turbospin_compression.label()
-                ),
-                StatusKind::Info,
-            );
-        }
-    });
-}
-
-fn style_combo_widgets(ui: &mut egui::Ui) {
-    let w = &mut ui.style_mut().visuals.widgets;
-    w.inactive.bg_fill = color::BG_ELEVATED;
-    w.inactive.weak_bg_fill = color::BG_ELEVATED;
-    w.inactive.fg_stroke = Stroke::new(1.0, color::TEXT_PRIMARY);
-    w.inactive.bg_stroke = Stroke::new(1.0, color::GRID_LINE);
-
-    w.hovered.bg_fill = color::BG_HOVER;
-    w.hovered.weak_bg_fill = color::BG_HOVER;
-    w.hovered.fg_stroke = Stroke::new(1.0, color::ACCENT_YELLOW);
-    w.hovered.bg_stroke = Stroke::new(1.0, color::ACCENT_YELLOW.linear_multiply(0.35));
-
-    w.active.bg_fill = color::BG_ACTIVE;
-    w.active.weak_bg_fill = color::BG_ACTIVE;
-    w.active.fg_stroke = Stroke::new(1.0, color::TEXT_PRIMARY);
-    w.active.bg_stroke = Stroke::new(1.0, color::ACCENT_YELLOW.linear_multiply(0.5));
-
-    w.open.bg_fill = color::BG_ELEVATED;
-    w.open.fg_stroke = Stroke::new(1.0, color::TEXT_PRIMARY);
-
-    let n = &mut ui.style_mut().visuals.widgets.noninteractive;
-    n.bg_fill = color::BG_PANEL;
-    n.weak_bg_fill = color::BG_PANEL;
-    n.fg_stroke = Stroke::new(1.0, color::TEXT_PRIMARY);
-}
-
-/// When switching simulators, seed from the new mode's template only if the
-/// buffer still matches the *previous* mode's starter template. Empty buffers
-/// stay empty until the user opens a file or runs `:reset`.
-fn on_simulator_changed(state: &mut AppState, prev: SimulatorKind) {
-    let was_template = state.editor_text == prev.default_template();
-    if was_template {
-        state.editor_text = state.simulator.default_template().to_string();
-    }
-    state.ensure_synced();
-
-    let s = state.simulator;
-    let suffix = if was_template {
-        " (template loaded)"
-    } else {
-        ""
-    };
-    state.ui.flash(
-        format!(
-            "{} → .{} files{}{}  ⌘R to run",
-            s.label(),
-            s.circuit_extension(),
-            suffix,
-            if s == SimulatorKind::TurboSpin {
-                " · use `ts …` to set compression"
-            } else {
-                ""
-            }
-        ),
-        StatusKind::Info,
-    );
-}
-
 pub fn show_bottom(ui: &mut egui::Ui, state: &mut AppState) {
     if let Some((msg, kind)) = state.ui.status_message.as_ref() {
         let c = match kind {
@@ -203,4 +143,41 @@ pub fn show_bottom(ui: &mut egui::Ui, state: &mut AppState) {
     } else {
         ui.allocate_space(Vec2::new(ui.available_width(), 1.0));
     }
+}
+
+/// When switching simulators, seed from the new mode's template only if the
+/// buffer still matches the *previous* mode's starter template.
+pub fn on_simulator_changed(state: &mut AppState, prev: SimulatorKind) {
+    let was_template = state.editor_text == prev.default_template();
+    if was_template {
+        state.editor_text = state.simulator.default_template().to_string();
+    }
+
+    if state.compare_simulator == Some(state.simulator) {
+        state.compare_simulator = None;
+        state.compare_simulation = None;
+    }
+
+    state.ensure_synced();
+
+    let s = state.simulator;
+    let suffix = if was_template {
+        " (template loaded)"
+    } else {
+        ""
+    };
+    state.ui.flash(
+        format!(
+            "{} → .qasm files{}{}  ⌘R to run",
+            s.label(),
+            suffix,
+            match s {
+                SimulatorKind::TurboSpin | SimulatorKind::OldTurboSpin => {
+                    " · use `:compress …` and `:tsmode …`"
+                }
+                _ => "",
+            }
+        ),
+        StatusKind::Info,
+    );
 }

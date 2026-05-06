@@ -22,8 +22,8 @@ use egui::{CornerRadius, Id, Key, Modifiers, Pos2, Rect, Sense, Stroke, StrokeKi
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
-use crate::components::{self, command_palette, status_bar, tile_picker};
-use crate::state::{AppState, StatusKind};
+use crate::components::{self, command_palette, config_popup, status_bar, tile_picker};
+use crate::state::{AppState, SimulatorKind, StatusKind};
 use crate::theme::{self, color, space};
 use crate::tiling::{self, FocusDir, Layout, SplitDir, ViewKind};
 
@@ -33,6 +33,9 @@ pub struct QSimApp {
     /// `apply_action` so keybind-driven splits/focus can compute the right
     /// geometry without waiting for `render_tile_tree` to run again.
     last_central_rect: Rect,
+    /// Snapshot of simulator when config popup was opened — used to detect
+    /// changes on close.
+    config_prev_sim: Option<SimulatorKind>,
 }
 
 impl QSimApp {
@@ -41,6 +44,7 @@ impl QSimApp {
         Self {
             state: AppState::new(),
             last_central_rect: Rect::NOTHING,
+            config_prev_sim: None,
         }
     }
 }
@@ -51,7 +55,7 @@ impl eframe::App for QSimApp {
         self.state.ensure_synced();
 
         // 2. Global keybinds — consumed before any widget sees them.
-        let modal_open = self.state.ui.cmd_palette_open || self.state.ui.tile_picker_open;
+        let modal_open = self.state.ui.cmd_palette_open || self.state.ui.tile_picker_open || self.state.ui.config_popup_open;
         if !modal_open {
             self.handle_global_keys(ctx, frame);
         }
@@ -100,7 +104,8 @@ impl eframe::App for QSimApp {
         // 6. Modal overlays.
         let palette_open = command_palette::show(ctx, &mut self.state, focused_rect);
         let picker_open = tile_picker::show(ctx, &mut self.state, focused_rect);
-        let _ = palette_open || picker_open;
+        let config_open = config_popup::show(ctx, &mut self.state);
+        let _ = palette_open || picker_open || config_open;
     }
 }
 
@@ -143,8 +148,9 @@ impl QSimApp {
         rect: Rect,
         is_focused: bool,
     ) {
+        // Keep panel spacing stable, but add more content padding inside each tile.
         let inner = rect.shrink(8.0);
-        let body = inner.shrink(2.0);
+        let body = inner.shrink(8.0);
 
         // Clone the leaf out of the tree so we don't hold a borrow on
         // `state.tiles` while `render_view` mutably borrows `state`.
@@ -231,6 +237,9 @@ impl QSimApp {
             if i.consume_key(Modifiers::COMMAND, Key::T) {
                 out.push(KeyAction::ToggleTilePicker);
             }
+            if i.consume_key(Modifiers::COMMAND, Key::Comma) {
+                out.push(KeyAction::ToggleConfig);
+            }
             if i.consume_key(Modifiers::COMMAND, Key::W) {
                 out.push(KeyAction::CloseFocused);
             }
@@ -246,9 +255,12 @@ impl QSimApp {
 
             // Cycle tile focus (read order matches layout.leaves — depth-first).
             let shift_cmd = Modifiers::COMMAND | Modifiers::SHIFT;
-            if i.consume_key(shift_cmd, Key::Tab) {
+            let shift_ctrl = Modifiers::CTRL | Modifiers::SHIFT;
+            if i.consume_key(shift_cmd, Key::Tab) || i.consume_key(shift_ctrl, Key::Tab) {
                 out.push(KeyAction::CycleFocus(false));
-            } else if i.consume_key(Modifiers::COMMAND, Key::Tab) {
+            } else if i.consume_key(Modifiers::COMMAND, Key::Tab)
+                || i.consume_key(Modifiers::CTRL, Key::Tab)
+            {
                 out.push(KeyAction::CycleFocus(true));
             }
 
@@ -282,7 +294,7 @@ impl QSimApp {
                 out.push(KeyAction::SplitDir(SplitDir::Vertical, true));
             }
 
-        // Cmd + 1..6 → open that view directly (skips the picker).
+        // Cmd + 1..9 → open that view directly (skips the picker).
         for (n, key) in [
             (1usize, Key::Num1),
             (2, Key::Num2),
@@ -290,6 +302,9 @@ impl QSimApp {
             (4, Key::Num4),
             (5, Key::Num5),
             (6, Key::Num6),
+            (7, Key::Num7),
+            (8, Key::Num8),
+            (9, Key::Num9),
         ] {
                 if i.consume_key(Modifiers::COMMAND, key) {
                     if let Some(&v) = ViewKind::picker_options().get(n - 1) {
@@ -320,6 +335,20 @@ impl QSimApp {
                     self.state.ui.tile_picker_input.clear();
                 }
             }
+            KeyAction::ToggleConfig => {
+                if !self.state.ui.config_popup_open {
+                    // Opening: snapshot current simulator so we can detect changes on close
+                    self.config_prev_sim = Some(self.state.simulator);
+                } else {
+                    // Closing: sync any simulator changes
+                    if let Some(prev) = self.config_prev_sim.take() {
+                        if self.state.simulator != prev {
+                            status_bar::on_simulator_changed(&mut self.state, prev);
+                        }
+                    }
+                }
+                self.state.ui.config_popup_open = !self.state.ui.config_popup_open;
+            }
             KeyAction::CloseFocused => {
                 match self.state.tiles.close_focused(self.state.focused_tile) {
                     tiling::CloseResult::Closed(id) => {
@@ -338,9 +367,22 @@ impl QSimApp {
             KeyAction::Run => match self.state.rerun() {
                 Ok(()) => {
                     let label = self.state.simulator.label();
-                    self.state
-                        .ui
-                        .flash(format!("run ({label}) ok"), StatusKind::Ok);
+                    let runtime_ms = self.state.simulation.metrics.runtime_ms;
+                    let runtime_suffix = if runtime_ms >= 1000.0 {
+                        format!(" · {:.2}s", runtime_ms / 1000.0)
+                    } else {
+                        format!(" · {:.1}ms", runtime_ms)
+                    };
+                    if let Some(cmp) = self.state.compare_simulator {
+                        self.state.ui.flash(
+                            format!("run ({label} vs {}) ok{}", cmp.label(), runtime_suffix),
+                            StatusKind::Ok,
+                        );
+                    } else {
+                        self.state
+                            .ui
+                            .flash(format!("run ({label}) ok{}", runtime_suffix), StatusKind::Ok);
+                    }
                 }
                 Err(e) => self.state.ui.flash(e, StatusKind::Err),
             },
@@ -438,6 +480,7 @@ impl QSimApp {
 enum KeyAction {
     TogglePalette,
     ToggleTilePicker,
+    ToggleConfig,
     CloseFocused,
     Run,
     Save,

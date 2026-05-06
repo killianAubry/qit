@@ -10,6 +10,9 @@ pub struct UiState {
     pub tile_picker_open: bool,
     pub tile_picker_input: String,
 
+    /// Whether the config popup is visible (Cmd+,).
+    pub config_popup_open: bool,
+
     /// One-line transient status message (drawn at the bottom).
     pub status_message: Option<(String, StatusKind)>,
 }
@@ -28,6 +31,7 @@ impl Default for UiState {
             cmd_palette_input: String::new(),
             tile_picker_open: false,
             tile_picker_input: String::new(),
+            config_popup_open: false,
             status_message: None,
         }
     }

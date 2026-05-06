@@ -45,7 +45,7 @@ pub fn show(ctx: &egui::Context, state: &mut AppState, focused_rect: egui::Rect)
         }
     });
 
-    // — Number-key shortcuts (Cmd+1..6 handled in app.rs) —
+    // — Number-key shortcuts (Cmd+1..9 handled in app.rs) —
     let direct = ctx.input(|i| {
         for (n, key) in [
             (1usize, Key::Num1),
@@ -54,6 +54,9 @@ pub fn show(ctx: &egui::Context, state: &mut AppState, focused_rect: egui::Rect)
             (4, Key::Num4),
             (5, Key::Num5),
             (6, Key::Num6),
+            (7, Key::Num7),
+            (8, Key::Num8),
+            (9, Key::Num9),
         ] {
             if i.key_pressed(key) {
                 return Some(n);

@@ -105,6 +105,69 @@ pub fn bloch_from_statevector(sv: &[Complex], num_qubits: usize) -> Vec<BlochVec
     compute_bloch(sv, num_qubits)
 }
 
+// ── Fidelity & error metrics ───────────────────────────────────────────
+
+/// State fidelity F = |⟨ψ|φ⟩|² between two pure-state statevectors.
+pub fn state_fidelity(sv_a: &[Complex], sv_b: &[Complex]) -> f32 {
+    let n = sv_a.len().min(sv_b.len());
+    let mut overlap_re = 0.0f32;
+    let mut overlap_im = 0.0f32;
+    for i in 0..n {
+        overlap_re += sv_a[i].re * sv_b[i].re + sv_a[i].im * sv_b[i].im;
+        overlap_im += sv_a[i].im * sv_b[i].re - sv_a[i].re * sv_b[i].im;
+    }
+    let mag_sq = overlap_re * overlap_re + overlap_im * overlap_im;
+    mag_sq.clamp(0.0, 1.0)
+}
+
+/// Trace distance T = ½‖ρ - σ‖₁. For pure states this equals √(1 - F).
+pub fn trace_distance(fidelity: f32) -> f32 {
+    (1.0 - fidelity).sqrt()
+}
+
+/// Per-basis-state fidelity contributions |⟨i|ψ⟩|² for each basis state.
+pub fn basis_probabilities(sv: &[Complex]) -> Vec<f32> {
+    sv.iter().map(|c| c.re * c.re + c.im * c.im).collect()
+}
+
+// ── Entanglement metrics ────────────────────────────────────────────────
+
+/// Per-qubit von Neumann entropy S(ρᵢ) = -Tr(ρᵢ log₂ ρᵢ).
+/// ρᵢ is the reduced density matrix for qubit i.
+pub fn qubit_entropies(sv: &[Complex], num_qubits: usize) -> Vec<f32> {
+    let bloch = compute_bloch(sv, num_qubits);
+    bloch.iter().map(|b| {
+        let r = (b.x * b.x + b.y * b.y + b.z * b.z).sqrt().min(1.0);
+        // Eigenvalues of single-qubit reduced state: λ± = (1 ± r) / 2
+        let lambda_plus = (1.0 + r) / 2.0;
+        let lambda_minus = (1.0 - r) / 2.0;
+        let mut s = 0.0f32;
+        if lambda_plus > 1e-10 { s -= lambda_plus * lambda_plus.log2(); }
+        if lambda_minus > 1e-10 { s -= lambda_minus * lambda_minus.log2(); }
+        s
+    }).collect()
+}
+
+// ── Density matrix ──────────────────────────────────────────────────────
+
+/// Build the full N-qubit density matrix ρ = |ψ⟩⟨ψ| as a flat Vec<Complex>.
+/// dim × dim elements, row-major order.
+pub fn density_matrix(sv: &[Complex]) -> Vec<Complex> {
+    let dim = sv.len();
+    let mut rho = vec![Complex::default(); dim * dim];
+    for i in 0..dim {
+        for j in 0..dim {
+            let a = sv[i];
+            let b = sv[j];
+            rho[i * dim + j] = Complex {
+                re: a.re * b.re + a.im * b.im,
+                im: a.im * b.re - a.re * b.im,
+            };
+        }
+    }
+    rho
+}
+
 /// Compute per-qubit reduced-state Bloch vectors directly from a pure-state
 /// statevector, without ever materialising the full N-qubit density matrix.
 ///
